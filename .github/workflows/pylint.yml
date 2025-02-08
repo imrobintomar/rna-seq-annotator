@@ -1,0 +1,121 @@
+name: Pylint and Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    services:
+      mongodb:
+        image: mongo:latest
+        ports:
+          - 27017:27017
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pylint pytest pytest-cov
+
+    - name: Initialize test data
+      run: |
+        mkdir -p test_data/ontologies
+        mkdir -p test_data/output
+        mkdir -p test_data/logs
+
+    - name: Create Pylint configuration
+      run: |
+        echo "[MASTER]
+        disable=
+            C0114, # missing-module-docstring
+            C0115, # missing-class-docstring
+            C0116, # missing-function-docstring
+        
+        [FORMAT]
+        max-line-length=100
+        
+        [MESSAGES CONTROL]
+        disable=
+            R0903, # too-few-public-methods
+            R0913, # too-many-arguments
+            R0914, # too-many-locals
+            W0511, # fixme
+        
+        [DESIGN]
+        max-parents=13
+        
+        [TYPECHECK]
+        ignored-modules=numpy,pandas,biopython" > .pylintrc
+
+    - name: Analysing the code with pylint
+      run: |
+        pylint --fail-under=8.0 $(git ls-files '*.py')
+
+    - name: Run unit tests
+      run: |
+        pytest --cov=. --cov-report=xml tests/
+
+    - name: Upload coverage report
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: true
+
+    - name: Check type hints
+      run: |
+        pip install mypy
+        mypy --ignore-missing-imports $(git ls-files '*.py')
+
+    - name: Check code formatting
+      run: |
+        pip install black
+        black --check $(git ls-files '*.py')
+
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Notify on failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: 'CI Pipeline Failed',
+            body: 'Pipeline failed for commit: ' + context.sha
+          })
+
+env:
+  MONGODB_URI: mongodb://localhost:27017/
+  REDIS_URL: redis://localhost:6379
+  LOG_LEVEL: INFO
+  MAX_WORKERS: 4
+  BATCH_SIZE: 1000
+  MIN_CONFIDENCE: 0.8
