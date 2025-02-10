@@ -252,7 +252,7 @@ If you use this tool in your research, please cite:
 
 For support:
 - Open an issue in the GitHub repository
-- Contact [itsrobintomar@gmaul.com]
+- Contact [itsrobintomar@gmail.com]
 - Check the troubleshooting guide
 
 ## Acknowledgments
